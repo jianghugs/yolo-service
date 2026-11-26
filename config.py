@@ -9,7 +9,7 @@ import os
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 # ---------- 版本 ----------
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 
 
 def _env(name, default):
@@ -49,9 +49,9 @@ DEVICE = _env('YS_DEVICE', '')              # 空 = 自动选择 cuda:0 / cpu
 SCORE_THR = _env_float('YS_SCORE_THR', 0.5)  # 与原 Pedestron 保持一致
 WARMUP = _env_bool('YS_WARMUP', True)
 
-# ---------- 去重（与原 b.py 逻辑一致，仅把比较对象改为“最新两张”） ----------
-DEDUP_THRESHOLD = _env_float('YS_DEDUP_THRESHOLD', 0.99)
-DEDUP_STD_SIZE = (1920, 1080)
+# ---------- 去重（dHash 感知哈希 + 汉明距离，比较对象为“最新两张”） ----------
+DEDUP_HASH_SIZE = _env_int('YS_DEDUP_HASH_SIZE', 16)     # 哈希边长，位串 = size*size 位
+DEDUP_HASH_DIST = _env_int('YS_DEDUP_HASH_DIST', 10)     # 汉明距离 <= 该值视为“画面未变化”
 
 # ---------- 告警回调 ----------
 CALLBACK_URL = _env('YS_CALLBACK_URL', 'http://<ALERT_HOST>:8600/api/callback/reportAlarmInfo')

@@ -12,6 +12,7 @@
   YS_PORT=1240 python app.py     # 灰度实例
 """
 import atexit
+import base64
 import logging
 import logging.handlers
 import os
@@ -21,6 +22,7 @@ import threading
 import time
 
 import cv2
+import numpy as np
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -113,6 +115,18 @@ def _start_maintenance():
 
 
 # ---------------------------------------------------------------- 业务
+# 每设备一把锁：同一设备的「读缓存 -> 比较 -> 清理」串行化，避免并发请求竞态
+_device_locks = {}
+_device_locks_guard = threading.Lock()
+
+
+def _device_lock(devices):
+    with _device_locks_guard:
+        if devices not in _device_locks:
+            _device_locks[devices] = threading.Lock()
+        return _device_locks[devices]
+
+
 def _process(photo, devices):
     """检测 + 告警回调，返回 (count, elapsed_ms)。"""
     result_path, count, elapsed_ms = DETECTOR.detect(photo, config.RESULTS_DIR)
@@ -164,20 +178,21 @@ def portrait_recognition():
         return jsonify({'code': '400', 'msg': '图片无法解码'})
 
     try:
-        files = cache.device_files(config.START_DIR, devices)
-        if len(files) < 2:
-            log.info('device=%s 缓存不足两张（%d），等待下一张', devices, len(files))
-            return jsonify({'code': '400', 'msg': '图片不足两张'})
+        with _device_lock(devices):
+            files = cache.device_files(config.START_DIR, devices)
+            if len(files) < 2:
+                log.info('device=%s 缓存不足两张（%d），等待下一张', devices, len(files))
+                return jsonify({'code': '400', 'msg': '图片不足两张'})
 
-        # 与最新两张比较：画面变化才检测，避免静置画面重复推理
-        img1, img2 = files[-2], files[-1]
-        if cache.is_scene_changed(img1, img2):
-            _process(img2, devices)
-        else:
-            _bump('skipped')
+            # 与最新两张比较：画面变化才检测，避免静置画面重复推理
+            img1, img2 = files[-2], files[-1]
+            if cache.is_scene_changed(img1, img2):
+                _process(img2, devices)
+            else:
+                _bump('skipped')
 
-        cache.prune_device(config.START_DIR, devices, keep=1)
-        cache.enforce_limit(config.START_DIR, devices)
+            cache.prune_device(config.START_DIR, devices, keep=1)
+            cache.enforce_limit(config.START_DIR, devices)
         log.info('请求处理完成 device=%s 总耗时=%dms', devices, int((time.time() - t0) * 1000))
         return jsonify({'code': '200', 'msg': 'ok'})
     except Exception as e:
@@ -185,6 +200,41 @@ def portrait_recognition():
         log.exception('处理请求异常 device=%s: %s', devices, e)
         cache.remove_quiet(img_path)
         return jsonify({'code': '500', 'msg': 'internal error'})
+
+
+@app.route('/api/detectPreview', methods=['POST'])
+def detect_preview():
+    """无副作用检测预览：返回标注图(base64)/人数/耗时。
+
+    与 /api/portraitRecognition 的区别：不落盘、不去重、不回调，
+    供检测控制台（1239）等以 WC_DETECT_VIA 方式复用本机 GPU。
+    """
+    _bump('requests')
+    upload = request.files.get('file')
+    if upload is None or not upload.filename:
+        return jsonify({'code': '400', 'msg': '缺少 file 文件'})
+
+    data = np.frombuffer(upload.read(), dtype=np.uint8)
+    image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if image is None:
+        return jsonify({'code': '400', 'msg': '图片无法解码'})
+
+    t0 = time.time()
+    with DETECTOR._lock:
+        results = DETECTOR.model.predict(image, device=DETECTOR.device,
+                                         conf=config.SCORE_THR, classes=[0], verbose=False)
+    elapsed_ms = int((time.time() - t0) * 1000)
+    r = results[0]
+    count = len(r.boxes)
+    image_b64 = None
+    if count > 0:
+        ok, buf = cv2.imencode('.jpg', r.plot(), [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if ok:
+            image_b64 = base64.b64encode(buf.tobytes()).decode('ascii')
+    _bump('detections')
+    _bump('detect_ms_total', elapsed_ms)
+    return jsonify({'code': '200', 'device': DETECTOR.device,
+                    'count': count, 'elapsed_ms': elapsed_ms, 'image': image_b64})
 
 
 @app.route('/api/clearPicture', methods=['GET'])
@@ -240,7 +290,8 @@ def stats():
         'config': {
             'port': config.PORT,
             'score_thr': config.SCORE_THR,
-            'dedup_threshold': config.DEDUP_THRESHOLD,
+            'dedup_hash_size': config.DEDUP_HASH_SIZE,
+            'dedup_hash_dist': config.DEDUP_HASH_DIST,
             'start_dir': config.START_DIR,
             'results_dir': config.RESULTS_DIR,
         },
@@ -276,9 +327,9 @@ def main():
 
     log.info('=' * 60)
     log.info('yolo_service v%s 启动 | device=%s model=%s', config.VERSION, DETECTOR.device, DETECTOR.model_name)
-    log.info('监听 %s:%d | 回调 %s | 去重阈值 %.2f | 检测阈值 %.2f',
+    log.info('监听 %s:%d | 回调 %s | 去重距离 %d | 检测阈值 %.2f',
              config.HOST, config.PORT, config.CALLBACK_URL,
-             config.DEDUP_THRESHOLD, config.SCORE_THR)
+             config.DEDUP_HASH_DIST, config.SCORE_THR)
     log.info('start=%s results=%s log=%s', config.START_DIR, config.RESULTS_DIR, config.LOG_FILE)
 
     if config.SERVER == 'waitress':

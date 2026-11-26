@@ -1,6 +1,40 @@
 # 变更记录
 
-> Change log is kept in Chinese below (historical record). For docs, see [README](README.md) (English) / [README.zh-CN](README.zh-CN.md).
+## 1.2.0 - 2026-11-26
+
+### 性能与正确性优化
+- **去重算法重写**：matchTemplate(1920x1080) → dHash 感知哈希 + 汉明距离，
+  单次相似度判定从几十毫秒降到微秒级；带 mtime 缓存避免重复解码。
+  新参数 `YS_DEDUP_HASH_SIZE`（默认 16）、`YS_DEDUP_HASH_DIST`（默认 10），
+  原 `YS_DEDUP_THRESHOLD` 废弃。
+- **设备归属精确匹配**：缓存文件按 `<时间戳>_<devices>.<ext>` 结构正则匹配，
+  修复子串误匹配（设备 1 误命中设备 21 / camera1 的文件）。
+- **检出 0 人跳过写盘**：不再画框/编码/落盘，省一次 I/O。
+- **每设备并发锁**：同一设备的「读缓存→比较→清理」串行化，消除并发请求竞态。
+
+### 新增
+- `POST /api/detectPreview`：无副作用检测预览（返回标注图/人数/耗时），
+  供检测控制台以 `WC_DETECT_VIA` 方式复用 GPU。
+- 工程化：`Dockerfile`、GitHub Actions CI、pytest 单元测试（cache 9 项）、
+  `LICENSE`（MIT）、`tools/export_trt.sh`（TensorRT 导出）、依赖版本锁定。
+
+## 1.2.0 - 2026-11-26
+
+### 性能与正确性优化
+- **去重算法重写**：matchTemplate(1920x1080) → dHash 感知哈希 + 汉明距离，
+  单次相似度判定从几十毫秒降到微秒级；带 mtime 缓存避免重复解码。
+  新参数 `YS_DEDUP_HASH_SIZE`（默认 16）、`YS_DEDUP_HASH_DIST`（默认 10），
+  原 `YS_DEDUP_THRESHOLD` 废弃。
+- **设备归属精确匹配**：缓存文件按 `<时间戳>_<devices>.<ext>` 结构正则匹配，
+  修复子串误匹配（设备 1 误命中设备 21 / camera1 的文件）。
+- **检出 0 人跳过写盘**：不再画框/编码/落盘，省一次 I/O。
+- **每设备并发锁**：同一设备的「读缓存→比较→清理」串行化，消除并发请求竞态。
+
+### 新增
+- `POST /api/detectPreview`：无副作用检测预览（返回标注图/人数/耗时），
+  供检测控制台以 `WC_DETECT_VIA` 方式复用 GPU。
+- 工程化：`Dockerfile`、GitHub Actions CI、pytest 单元测试（cache 9 项）、
+  `LICENSE`（MIT）、`tools/export_trt.sh`（TensorRT 导出）、依赖版本锁定。
 
 ## 1.1.0 - 2026-10-22
 
@@ -28,7 +62,7 @@
 
 ### 兼容性
 - `/api/portraitRecognition`、`/api/clearPicture` 的请求参数与响应体完全不变（`code`/`msg` 原样）
-- 环境变量未设置时，默认值与旧版一致（端口 1238、阈值 0.5、去重 0.99、回调 <ALERT_HOST>:8600）
+- 环境变量未设置时，默认值与旧版一致（端口 1238、阈值 0.5、去重 0.99、回调 <RTMP_HOST>:8600）
 
 ## 1.0.0 - 2026-10-21
 

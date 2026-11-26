@@ -3,13 +3,16 @@
 
 关键点：
   * devices 参数会拼进文件名，必须校验，防止 `../` 之类的路径穿越
-  * 文件名带毫秒时间戳，避免同一秒内多次上传互相覆盖（原实现只到秒）
-  * 相似度沿用原 b.py 的 matchTemplate 方案，保持判定口径一致
+  * 设备归属用「文件名结构精确匹配」（<时间戳>_<devices>.<ext>），
+    避免子串误匹配：设备 1 不再错误命中设备 21 / camera1 的文件
+  * 相似度用 dHash 感知哈希 + 汉明距离（微秒级），替代原 1920x1080
+    matchTemplate（几十毫秒），且带 mtime 缓存，同一文件不重复解码
   * 定时清理过期图片，避免 start/ 目录无限增长
 """
 import logging
 import os
 import re
+import threading
 import time
 
 import cv2
@@ -22,24 +25,41 @@ log = logging.getLogger('yolo_service.cache')
 # 设备号白名单：字母数字下划线中划线点，1~64 位（兼容既有设备号 fig... / 纯数字 / webtest）
 _DEVICE_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,64}$')
 
+# 缓存文件名结构：<毫秒时间戳>_<devices><允许的后缀>
+_OWNER_RES = {}
+_OWNER_LOCK = threading.Lock()
+
 
 def is_valid_device(devices):
     return bool(devices) and bool(_DEVICE_RE.match(devices))
 
 
+def _owner_re(devices):
+    """按设备号生成文件名精确匹配正则（带缓存）。"""
+    with _OWNER_LOCK:
+        if devices not in _OWNER_RES:
+            exts = '|'.join(re.escape(e) for e in config.ALLOWED_EXTS)
+            _OWNER_RES[devices] = re.compile(
+                r'^\d+_' + re.escape(devices) + r'(?:' + exts + r')$', re.IGNORECASE)
+        return _OWNER_RES[devices]
+
+
 def device_files(start_dir, devices):
-    """返回该设备的缓存图列表，按 mtime 升序（旧 -> 新）。"""
+    """返回该设备的缓存图列表，按 mtime 升序（旧 -> 新）。
+
+    注意：精确匹配文件名结构，设备 1 不会再命中设备 21 / camera1 的文件。
+    """
+    pattern = _owner_re(devices)
     out = []
     try:
         names = os.listdir(start_dir)
     except FileNotFoundError:
         return out
     for name in names:
-        if devices not in name:
-            continue
-        path = os.path.join(start_dir, name)
-        if os.path.isfile(path):
-            out.append(path)
+        if pattern.match(name):
+            path = os.path.join(start_dir, name)
+            if os.path.isfile(path):
+                out.append(path)
     out.sort(key=lambda p: os.path.getmtime(p))
     return out
 
@@ -52,31 +72,63 @@ def remove_quiet(path):
         return False
 
 
+# ---------------------------------------------------------------- dHash 去重
+# path -> (mtime, hash)；文件名带毫秒时间戳不会重复，缓存仅避免重复解码
+_hash_cache = {}
+_HASH_LOCK = threading.Lock()
+
+
+def _dhash(img):
+    """dHash：缩放到 (H+1)xW 灰度图，比较相邻像素亮度，得到位串。"""
+    resized = cv2.resize(img, (config.DEDUP_HASH_SIZE + 1, config.DEDUP_HASH_SIZE))
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    diff = gray[:, 1:] > gray[:, :-1]
+    return int.from_bytes(np.packbits(diff).tobytes(), 'big')
+
+
+def _file_hash(path):
+    """读取图片并计算 dHash；带 mtime 缓存。失败返回 None。"""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    with _HASH_LOCK:
+        cached = _hash_cache.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    img = cv2.imread(path)
+    if img is None:
+        return None
+    h = _dhash(img)
+    with _HASH_LOCK:
+        if len(_hash_cache) > 512:          # 防止极端情况下无限增长
+            _hash_cache.clear()
+        _hash_cache[path] = (mtime, h)
+    return h
+
+
+def _hamming(h1, h2):
+    return bin(h1 ^ h2).count('1')
+
+
 def is_scene_changed(img1_path, img2_path, threshold=None):
     """两张图是否不同（True=画面变化，需要检测）。
 
-    与原 b.py 一致：缩放到 1920x1080 后灰度模板匹配，得分 < threshold 视为变化。
-    读取失败时返回 True（宁可多检测一次，也不要漏检）。
+    用 dHash 汉明距离判断：距离 <= threshold 视为「画面未变化」。
+    任一图片读取/解码失败时返回 True（宁可多检测一次，也不要漏检）。
     """
-    threshold = config.DEDUP_THRESHOLD if threshold is None else threshold
-    img1 = cv2.imread(img1_path)
-    img2 = cv2.imread(img2_path)
-    if img1 is None or img2 is None:
+    threshold = config.DEDUP_HASH_DIST if threshold is None else threshold
+    h1 = _file_hash(img1_path)
+    h2 = _file_hash(img2_path)
+    if h1 is None or h2 is None:
         log.warning('读取失败 img1=%s img2=%s，按“画面已变化”处理', img1_path, img2_path)
         return True
 
-    try:
-        size = config.DEDUP_STD_SIZE
-        gray1 = cv2.cvtColor(cv2.resize(img1, size), cv2.COLOR_BGR2GRAY)
-        gray2 = cv2.cvtColor(cv2.resize(img2, size), cv2.COLOR_BGR2GRAY)
-        score = float(np.max(cv2.matchTemplate(gray1, gray2, cv2.TM_CCORR_NORMED)))
-    except cv2.error as e:
-        log.warning('相似度计算失败(%s)，按“画面已变化”处理', e)
-        return True
-
-    log.info('相似度 %.4f (阈值 %.2f) -> %s', score, threshold,
-             '画面变化，执行检测' if score < threshold else '画面未变化，跳过检测')
-    return score < threshold
+    dist = _hamming(h1, h2)
+    changed = dist > threshold
+    log.info('dHash 距离 %d (阈值 %d) -> %s', dist, threshold,
+             '画面变化，执行检测' if changed else '画面未变化，跳过检测')
+    return changed
 
 
 def prune_device(start_dir, devices, keep=1):

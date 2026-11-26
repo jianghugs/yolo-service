@@ -1,0 +1,7 @@
+# CI 运行单元测试所需的最小依赖（不含 torch/ultralytics，测试不加载模型）
+numpy>=1.23
+opencv-python-headless>=4.7
+flask>=2.2
+flask-cors>=4.0
+requests>=2.31
+pytest>=7.4

@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+start/
+results/
+detections/
+backup/
+dist/
+service.log*
+*.log
+.git/
+.github/
+tests/
+README*.md
+DEPLOY*.md
+CHANGELOG.md

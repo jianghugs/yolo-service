@@ -1,7 +1,5 @@
 # YOLO 行人检测服务部署与运维手册
 
-> 🌐 语言 / Language: [English](DEPLOY.md) | **简体中文**
-
 > 服务：`yolo_service`（Ultralytics YOLO11 行人检测，替代 Pedestron/mmdet 旧服务）
 > 版本：**v1.1.0** ｜ 更新日期：2026-10-22
 > 代码位置（服务器）：`/home/deployer/yolo_service/` ｜ 端口：**1238**
@@ -386,7 +384,7 @@ cat /etc/logrotate.d/pedestron-legacy
 2. `service.log` 里搜 `ERROR|异常|回调失败`
 3. `curl /api/health` 看 `device` 是否 `cuda:0`、`gpu.used_mb` 是否正常
 4. `nvidia-smi` 看进程与显存
-5. 回调不通再确认 `<ALERT_HOST>:8600` 可达性
+5. 回调不通再确认 `<RTMP_HOST>:8600` 可达性
 
 ---
 

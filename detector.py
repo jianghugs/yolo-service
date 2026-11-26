@@ -64,6 +64,10 @@ class PersonDetector(object):
         count = len(r.boxes)
         elapsed_ms = int((time.time() - t0) * 1000)
 
+        if count == 0:
+            # 没检出人：跳过画框与写盘，省一次编码 + 磁盘 I/O
+            return None, 0, elapsed_ms
+
         basename = os.path.splitext(os.path.basename(image_path))[0]
         result_path = os.path.join(result_dir, basename + '_result.jpg')
         plotted = r.plot()                        # BGR ndarray
