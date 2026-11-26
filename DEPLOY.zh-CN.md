@@ -1,6 +1,6 @@
 # YOLO 行人检测服务部署与运维手册
 
-> 🌐 语言 / Language: [English](DEPLOY.md) | 简体中文]
+> 🌐 语言 / Language: [English](DEPLOY.md) | **简体中文**
 
 > 服务：`yolo_service`（Ultralytics YOLO11 行人检测，替代 Pedestron/mmdet 旧服务）
 > 版本：**v1.1.0** ｜ 更新日期：2026-10-22

@@ -1,6 +1,6 @@
 # yolo_service — 行人检测告警服务
 
-> 🌐 语言 / Language: [English](README.md) | 简体中文]
+> 🌐 语言 / Language: [English](README.md) | **简体中文**
 
 用 **Ultralytics YOLO11** 替代原 Pedestron（mmdet cascade_hrnet）实现的行人检测服务。
 接口协议与原 `b.py` **完全一致**，调用方只需把端口从 `1237` 改成 `1238`。
