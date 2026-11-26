@@ -1,0 +1,13 @@
+# 旧 Pedestron 服务（1237，systemd: pedestron-legacy）日志轮转
+# b_service.log 由 systemd 以 append 方式写入，copytruncate 不会产生稀疏空洞
+/home/deployer/Pedestron/demo/log/b_service.log {
+    su deployer deployer
+    weekly
+    maxsize 100M
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

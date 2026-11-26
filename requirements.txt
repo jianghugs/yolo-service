@@ -1,0 +1,17 @@
+# yolo_service 依赖清单
+# 说明：torch/torchvision 必须带 +cu121 后缀（服务器驱动 535 最高支持 CUDA 12.x）
+#       安装顺序：先 torch，再 ultralytics，否则 ultralytics 会拉入不匹配的 torch 版本
+#
+# 安装（国内镜像）：
+#   pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 -f https://mirrors.aliyun.com/pytorch-wheels/cu121/
+#   pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
+ultralytics==8.4.183
+opencv-python==5.0.0.93
+numpy==2.2.6
+flask==3.1.3
+flask-cors==6.0.5
+requests>=2.31.0
+waitress>=3.0.0

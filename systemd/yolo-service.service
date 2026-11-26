@@ -1,0 +1,32 @@
+[Unit]
+Description=YOLO Pedestrian Detection Service (port 1238)
+Documentation=file:/home/deployer/yolo_service/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deployer
+Group=deployer
+WorkingDirectory=/home/deployer/yolo_service
+
+Environment=PYTHONUNBUFFERED=1
+Environment=YS_PORT=1238
+# 可选：把配置集中写到 yolo_service.env（KEY=VALUE，每行一个）
+EnvironmentFile=-/home/deployer/yolo_service/yolo_service.env
+
+ExecStart=/home/deployer/miniconda3/envs/yolo11/bin/python -u /home/deployer/yolo_service/app.py
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGTERM
+# 日志统一进 journal：journalctl -u yolo-service -f
+# 同时应用自身写轮转日志 service.log（默认 10MB x 5）
+StandardOutput=journal
+StandardError=journal
+# 业务服务，内存紧张时不要被优先 OOM 杀掉
+OOMScoreAdjust=-100
+
+[Install]
+WantedBy=multi-user.target
