@@ -1,5 +1,7 @@
 # 变更记录
 
+> Change log is kept in Chinese below (historical record). For docs, see [README](README.md) (English) / [README.zh-CN](README.zh-CN.md).
+
 ## 1.1.0 - 2026-10-22
 
 ### 结构
